@@ -14,7 +14,5 @@ repositories {
 
 dependencies {
     implementation(project(":rd-framework"))
-
     testImplementation("org.jetbrains:jetCheck:0.2.2")
 }
-
