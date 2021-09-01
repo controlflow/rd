@@ -92,8 +92,8 @@ open class KotlinJVMPlugin : Plugin<Project> {
                             name = "maven-central"
                             url = uri("https://oss.sonatype.org/content/groups/staging/")
                             credentials {
-                                it.username = rootProject.extra["sonatypeUser"].toString()
-                                it.password = rootProject.extra["sonatypePassword"].toString()
+                                username = rootProject.extra["sonatypeUser"].toString()
+                                password = rootProject.extra["sonatypePassword"].toString()
                             }
                         }
                     }

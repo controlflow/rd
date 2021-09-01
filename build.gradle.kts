@@ -152,12 +152,36 @@ tasks {
         }
     }
 
-    val nuGetPack by registering {
+    val createNuGetPackages by registering {
         group = publishingGroup
         dependsOn(cleanupArtifacts, copyNuGetLifetimes, copyNuGetRdFramework, copyNuGetRdFrameworkReflection, copyRdGen)
     }
 
+    val publishNuGet by registering {
+        group = publishingGroup
+        dependsOn(createNuGetPackages)
+        doLast {
+            val isUnderTeamCity = System.getenv("TEAMCITY_VERSION") != null
+            if (isUnderTeamCity) {
+                for (file in nuGetTargetDir.listFiles().filter { it.extension == "nupkg" }) {
+                    exec {
+                        commandLine(
+                            project.projectDir.resolve("rd-net").resolve("dotnet.cmd").canonicalPath,
+                            "nuget",
+                            "push",
+                            "--source",
+                            "https://api.nuget.org/v3/index.json",
+                            "--api-key",
+                            rootProject.extra["nuGetApiKey"].toString(),
+                            file
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     named("publish") {
-        dependsOn(nuGetPack, ":rd-gen:fatJar")
+        dependsOn(publishNuGet)
     }
 }
