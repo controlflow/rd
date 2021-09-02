@@ -75,7 +75,7 @@ inline fun spinUntil(condition: () -> Boolean) = SpinWait.spinUntil(condition)
 inline fun spinUntil(timeoutMs: Long, condition: () -> Boolean) = SpinWait.spinUntil(timeoutMs, condition)
 
 typealias EnumSet<T> = java.util.EnumSet<T>
-inline fun <reified T : Enum<T>> enumSetOf(values: Set<T>) : EnumSet<T> = EnumSet.noneOf(T::class.java).apply { addAll(values) }
+inline fun <reified T : Enum<T>> enumSetOf(values: Set<T> = emptySet()) : EnumSet<T> = EnumSet.noneOf(T::class.java).apply { addAll(values) }
 fun <T: Enum<T>> EnumSet<T>.values() : Set<T> = this
 
 typealias Runnable = java.lang.Runnable
