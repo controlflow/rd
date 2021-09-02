@@ -117,7 +117,6 @@ open class KotlinJVMPlugin : Plugin<Project> {
                 "testRuntimeOnly"("org.junit.jupiter:junit-jupiter-engine:$junitVersion")
                 "testImplementation"("org.junit.jupiter:junit-jupiter-params:$junitVersion")
                 "testImplementation"("org.jetbrains.kotlin:kotlin-test:$kotlinVersion")
-                "testImplementation"("org.jetbrains.kotlin:kotlin-test-junit:$kotlinVersion")
             }
         }
     }
