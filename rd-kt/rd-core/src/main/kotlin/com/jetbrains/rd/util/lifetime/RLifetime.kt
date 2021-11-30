@@ -7,7 +7,6 @@ import com.jetbrains.rd.util.collections.CountingSet
 import com.jetbrains.rd.util.lifetime.LifetimeStatus.*
 import com.jetbrains.rd.util.reactive.IViewable
 import com.jetbrains.rd.util.reactive.viewNotNull
-import com.jetbrains.rd.util.reflection.threadLocal
 
 enum class LifetimeStatus {
     Alive,
@@ -332,6 +331,37 @@ class LifetimeDefinition : Lifetime() {
                 else
                     break
             }
+        } underMutexIf { state ->
+            //no need to clear if lifetime will be cleared soon
+            statusSlice[state] == Alive
+        }
+    }
+
+    // todo Rewrite Lifetime and LifetimeDefinition as on the dotnet side
+    @Deprecated("Please don't use this api, because this api is a temporary hack to solve the problem of leaking nested lifetimes.")
+    fun clearObsoleteAttachedLifetimesIfThereAreMany() {
+        {
+            for (i in resources.lastIndex downTo 0) {
+                if ((resources[i] as? LifetimeDefinition)?.let { it.status >= Terminating } == true)
+                    resources.removeAt(i)
+                else
+                    break
+            }
+
+            var count = 0
+            for (i in resources.lastIndex downTo 0) {
+                if ((resources[i] as? LifetimeDefinition)?.let { it.status >= Terminating } == true) {
+                    count++
+                }
+            }
+
+            // don't want to recreate a new array too often
+            if (count >= 1000) {
+                val filteredList = resources.asSequence().filter { (it as? LifetimeDefinition)?.let { lt -> lt.status >= Terminating } != true }
+                resources = filteredList.toMutableList()
+            }
+
+
         } underMutexIf { state ->
             //no need to clear if lifetime will be cleared soon
             statusSlice[state] == Alive
