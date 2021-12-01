@@ -5,7 +5,6 @@ import com.jetbrains.rd.util.error
 import com.jetbrains.rd.util.getLogger
 import com.jetbrains.rd.util.info
 import com.jetbrains.rd.util.lifetime.Lifetime
-import com.jetbrains.rd.util.lifetime.onTermination
 import kotlinx.coroutines.*
 import java.lang.IllegalStateException
 import kotlin.coroutines.CoroutineContext

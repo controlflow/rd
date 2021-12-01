@@ -63,7 +63,7 @@ class LifetimeTest : RdTestBase() {
                     l11n.point(0)
                     log.add(1)
 
-                    SpinWait.spinUntil { def.status == LifetimeStatus.Canceled }
+                    SpinWait.spinUntil { def.status == LifetimeStatus.Canceling }
                     assert(!def.isAlive)
                 }
 

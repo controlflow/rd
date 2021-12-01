@@ -673,7 +673,7 @@ namespace JetBrains.Lifetimes
       }
         
       //Doesn't return "proper" OCE that transfer task into Canceled state (opposed to Faulted) because we null cts in `Destruct`. But it's for memory sake.
-      throw new InvalidOperationException($"{this}: can't add termination action if lifetime terminating or terminated (Status > Canceled); you can consider usage of `TryOnTermination` ");
+      throw new InvalidOperationException($"{this}: can't add termination action if lifetime terminating or terminated (Status > Canceling); you can consider usage of `TryOnTermination` ");
     }
     
     #endregion

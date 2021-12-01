@@ -7,11 +7,11 @@ import com.jetbrains.rd.util.collections.CountingSet
 import com.jetbrains.rd.util.lifetime.LifetimeStatus.*
 import com.jetbrains.rd.util.reactive.IViewable
 import com.jetbrains.rd.util.reactive.viewNotNull
-import com.jetbrains.rd.util.reflection.threadLocal
+import kotlin.math.min
 
 enum class LifetimeStatus {
     Alive,
-    Canceled,
+    Canceling,
     Terminating,
     Terminated
 }
@@ -36,17 +36,7 @@ sealed class Lifetime {
                 def.terminate()
             }
         }
-
-
-        @Deprecated("Use lifetime.createNested { def -> ... }")
-        fun define(lifetime: Lifetime, atomicAction : (LifetimeDefinition, Lifetime) -> Unit) = lifetime.createNested { atomicAction(it, it) }
-
-        @Deprecated("Use lifetime.createNested", ReplaceWith("lifetime.createNested()"))
-        fun create(lifetime: Lifetime): LifetimeDefinition = lifetime.createNested()
     }
-
-    @Deprecated("Use lifetime.createNested", ReplaceWith("lifetime.createNested()"))
-    fun createNestedDef() = createNested()
 
     fun createNested() = LifetimeDefinition().also { attach(it) }
 
@@ -76,18 +66,16 @@ sealed class Lifetime {
     abstract fun onTerminationIfAlive(action: () -> Unit): Boolean
     abstract fun onTerminationIfAlive(closeable: Closeable): Boolean
 
+    abstract fun onTermination(action: () -> Unit)
+    abstract fun onTermination(closeable: Closeable)
 
     abstract fun <T : Any> bracket(opening: () -> T, terminationAction: () -> Unit): T?
+    abstract fun <T : Any> bracket2(opening: () -> T, terminationAction: (T) -> Unit): T?
+
     internal abstract fun attach(child: LifetimeDefinition)
 
-    @Deprecated("Use onTermination", ReplaceWith("onTermination(action)"))
-    fun add(action: () -> Unit) = onTermination(action)
-
-    @Deprecated("Use !isAlive")
-    val isTerminated: Boolean get() = !isAlive
-
-    @Deprecated("Use executeIfAlive(action)", ReplaceWith("executeIfAlive(action)"))
-    fun <T : Any> ifAlive(action: () -> T) = executeIfAlive(action)
+    @Deprecated("Use isNotAlive")
+    val isTerminated: Boolean get() = isNotAlive
 }
 
 
@@ -96,14 +84,17 @@ class LifetimeDefinition : Lifetime() {
 
     companion object {
         internal val eternal = LifetimeDefinition()
-        private val log : Logger by lazy {getLogger<Lifetime>()}
+        private val log: Logger by lazy { getLogger<Lifetime>() }
 
         //State decomposition
         private val executingSlice = BitSlice.int(20)
         private val statusSlice = BitSlice.enum<LifetimeStatus>(executingSlice)
         private val mutexSlice = BitSlice.bool(statusSlice)
+        private val logErrorAfterExecution = BitSlice.bool(mutexSlice)
 
-        val Terminated : LifetimeDefinition = LifetimeDefinition()
+        val Terminated: LifetimeDefinition = LifetimeDefinition()
+
+        const val anonymousLifetimeId = "Anonymous"
 
         init {
             Terminated.terminate()
@@ -111,46 +102,54 @@ class LifetimeDefinition : Lifetime() {
     }
 
 
-
     //Fields
     private var state = AtomicInteger()
-    private var resources = mutableListOf<Any>()
+    private var resources: Array<Any?>? = arrayOfNulls(1)
+    private var resCount = 0
 
     /**
-     * Only possible [Alive] -> [Canceled] -> [Terminating] -> [Terminated]
+     * Only possible [Alive] -> [Canceling] -> [Terminating] -> [Terminated]
      */
-    override val status : LifetimeStatus get() = statusSlice[state]
+    override val status: LifetimeStatus get() = statusSlice[state]
+
+    /**
+     * You can optionally set this identification information to see logs with lifetime's id other than <see cref="AnonymousLifetimeId"/>
+     */
+    var id: Any? = null
 
 
-
-    private inline infix fun<T> (() -> T).executeIf(check: (Int) -> Boolean) : T? {
+    override fun <T : Any> executeIfAlive(action: () -> T): T? {
         //increase [executing] by 1
         while (true) {
             val s = state.get()
-            if (!check(s))
+            if (statusSlice[s] != Alive)
                 return null
 
-            if (state.compareAndSet(s, s+1))
+            if (state.compareAndSet(s, s + 1))
                 break
         }
 
         threadLocalExecuting.add(this@LifetimeDefinition, +1)
         try {
 
-            return this()
+            return action()
 
         } finally {
             threadLocalExecuting.add(this@LifetimeDefinition, -1)
             state.decrementAndGet()
+
+            if (logErrorAfterExecution[state]) {
+                log.error { "ExecuteIfAlive after termination of $this took too much time (>${waitForExecutingInTerminationTimeout}ms)" }
+            }
         }
     }
 
 
-    private inline infix fun<T> (() -> T).underMutexIf(check: (Int) -> Boolean) : T? {
+    private inline fun <T> underMutexIf(status: LifetimeStatus, action: () -> T): T? {
         //increase [executing] by 1
         while (true) {
             val s = state.get()
-            if (!check(s))
+            if (statusSlice[s] > status)
                 return null
 
             if (mutexSlice[s])
@@ -163,7 +162,7 @@ class LifetimeDefinition : Lifetime() {
 
         try {
 
-            return this()
+            return action()
 
         } finally {
             while (true) {
@@ -176,33 +175,48 @@ class LifetimeDefinition : Lifetime() {
         }
     }
 
-
-
-    override fun <T : Any> executeIfAlive(action: () -> T) : T? {
-        return action executeIf { state -> statusSlice[state] == Alive }
-    }
-
-    private fun tryAdd(action: Any) : Boolean {
+    private fun tryAdd(action: Any): Boolean {
         //we could add anything to Eternal lifetime and it'll never be executed
         if (lifetime === eternal)
             return true
 
-        return {
-            resources.add(action)
+        return underMutexIf(Canceling) {
+            val localResources = resources
+            require(localResources != null) { "$: `resources` can't be null under mutex while status < Terminating" }
+
+            if (resCount == localResources.size) {
+                var countAfterCleaning = 0
+                for (i in 0 until resCount) {
+                    //can't clear Canceling because TryAdd works in Canceling state
+                    val resource = localResources[i]
+                    if (resource is LifetimeDefinition && resource.status >= Terminating) {
+                        localResources[i] = null
+                    } else {
+                        localResources[countAfterCleaning++] = resource
+                    }
+                }
+
+                resCount = countAfterCleaning
+                if (countAfterCleaning * 2 > localResources.size) {
+                    val newArray =
+                        arrayOfNulls<Any?>(countAfterCleaning * 2)  //must be more than 1, so it always should be room for one more resource
+                    localResources.copyInto(newArray)
+                    resources = newArray
+                }
+            }
+
+            resources!![resCount++] = action
             true
-        } underMutexIf  {
-            statusSlice[it] < Terminating
         } ?: false
     }
 
 
-
-    private inline fun incrementStatusIf(check: (Int) -> Boolean) : Boolean {
+    private fun incrementStatusIf(status: LifetimeStatus): Boolean {
         assert(this !== eternal) { "Trying to change eternal lifetime" }
 
         while (true) {
             val s = state.get()
-            if (!check(s))
+            if (statusSlice[s] != status)
                 return false
 
             val nextStatus = enumValues<LifetimeStatus>()[statusSlice[s].ordinal + 1]
@@ -214,49 +228,55 @@ class LifetimeDefinition : Lifetime() {
     }
 
 
-    private fun markCanceledRecursively() : Boolean {
+    private fun markCancelingRecursively() {
         assert(this !== eternal) { "Trying to terminate eternal lifetime" }
 
-        if (!incrementStatusIf { statusSlice[it] == Alive } )
-            return false
+        if (!incrementStatusIf(Alive))
+            return
 
-        {
-            for (i in resources.lastIndex downTo 0) {
-                val def = resources[i] as? LifetimeDefinition ?: continue
-                def.markCanceledRecursively()
-            }
-        } underMutexIf {
-            statusSlice[it] < Terminating //some parallel thread already destructuring
-        } ?: return false
+        // Some other thread can already begin destructuring
+        // Then children lifetimes become canceled in their termination
 
-        return true
+        // In fact here access to resources could be done without mutex because setting cancellation status of children is rather optimization than necessity
+        val localResources = resources ?: return
+
+        //Math.min is to ensure that even if some other thread increased myResCount, we don't get IndexOutOfBoundsException
+        for (i in min(resCount, localResources.size) - 1 downTo 0) {
+            (localResources[i] as? LifetimeDefinition)?.markCancelingRecursively();
+        }
     }
 
 
-    fun terminate(supportsTerminationUnderExecuting: Boolean = false) : Boolean {
-        if (isEternal)
+    fun terminate(supportsTerminationUnderExecuting: Boolean = false): Boolean {
+        if (isEternal || status > Canceling)
             return false
 
 
 
-        if (threadLocalExecuting[this] > 0 && !supportsTerminationUnderExecuting) {
+        if (!supportsTerminationUnderExecuting && threadLocalExecuting[this] > 0) {
             error("Can't terminate lifetime under `executeIfAlive` because termination doesn't support this. Use `terminate(true)`")
         }
 
 
-        markCanceledRecursively()
+        markCancelingRecursively()
 
         //wait for all executions finished
         if (!spinUntil(waitForExecutingInTerminationTimeout) { executingSlice[state] <= threadLocalExecuting[this] }) {
-            log.error { "Can't wait for executeIfAlive for more than $waitForExecutingInTerminationTimeout ms. Keep termination." }
+            log.warn {
+                ("$this: can't wait for `ExecuteIfAlive` completed on other thread in $waitForExecutingInTerminationTimeout ms. Keep termination." + System.lineSeparator()
+                    + "This may happen either because of the ExecuteIfAlive failed to complete in a timely manner. In the case there will be following error messages." + System.lineSeparator()
+                    + "Or this might happen because of garbage collection or when the thread yielded execution in SpinWait.SpinOnce but did not receive execution back in a timely manner. If you are on JetBrains' Slack see the discussion https://jetbrains.slack.com/archives/CAZEUK2R0/p1606236742208100")
+            }
+
+            logErrorAfterExecution.atomicUpdate(state, true);
         }
 
 
         //Already terminated by someone else.
-        if (!incrementStatusIf { statusSlice[it] == Canceled })
+        if (!incrementStatusIf(Canceling))
             return false
 
-        //wait for all resource modification finished
+        //Now status is 'Terminating' and we have to wait for all resource modifications to complete. No mutex acquire is possible beyond this point.
         spinUntil { !mutexSlice[state] }
 
         destruct(supportsTerminationUnderExecuting)
@@ -267,56 +287,71 @@ class LifetimeDefinition : Lifetime() {
 
     //assumed that we are already in Terminating state
     private fun destruct(supportsRecursion: Boolean) {
-        assert (status == Terminating) { "Bad status for destructuring start: $status"}
+        assert(status == Terminating) { "Bad status for destructuring start: $status" }
+        assert(!mutexSlice[state]) { "$this: mutex must be released in this point" }
+        //no one can take mutex after this point
 
-        for (i in resources.lastIndex downTo 0) {
-            val resource = resources[i]
-            @Suppress("UNCHECKED_CAST")
-            //first comparing to function
-            (resource as? () -> Any?)?.let {action -> log.catch { action() }}?:
+        val localResources = resources
+        require(localResources != null) { "$this: `resources` can't be null on destructuring stage" }
 
-            when(resource) {
-                is Closeable -> log.catch { resource.close() }
-
-                is LifetimeDefinition -> log.catch {
-                    resource.terminate(supportsRecursion)
-                }
-
-                is ClearLifetimeMarker -> {
-                    resource.parentToClear.clearObsoleteAttachedLifetimes()
-                }
-
-                else -> log.catch { error("Unknown termination resource: $resource") }
-            }
-
-            //we can don't worry about
-            resources.removeAt(i)
+        for (i in resCount - 1 downTo 0) {
+            val resource = localResources[i] ?: break
+            terminateResource(resource, supportsRecursion)
         }
 
-        require (incrementStatusIf { statusSlice[it] == Terminating }) { "Bad status for destructuring finish: $status" }
+        resources = null
+        resCount = 0
+
+        require(incrementStatusIf(Terminating)) { "Bad status for destructuring finish: $status" }
+    }
+
+    private fun terminateResource(resource: Any, supportsRecursion: Boolean) {
+        try {
+            when (resource) {
+                is () -> Any? -> resource()
+
+                is Closeable -> resource.close()
+
+                is LifetimeDefinition -> resource.terminate(supportsRecursion)
+
+                else -> log.error { "Unknown termination resource: $resource" }
+            }
+        } catch (e: Throwable) {
+            log.error("$this: exception on termination of resource: $resource", e);
+        }
     }
 
 
     override fun onTerminationIfAlive(action: () -> Unit) = tryAdd(action)
     override fun onTerminationIfAlive(closeable: Closeable) = tryAdd(closeable)
 
+    override fun onTermination(action: () -> Unit) = onTermination(action as Any)
+    override fun onTermination(closeable: Closeable) = onTermination(closeable as Any)
+
+    private fun onTermination(obj: Any) {
+        if (tryAdd(obj)) return
+
+        terminateResource(obj, true)
+        error("$this: can't add termination action if lifetime terminating or terminated (Status > Canceling); you can consider usage of `onTerminationIfAlive` ")
+    }
 
 
     override fun attach(child: LifetimeDefinition) {
         require(!child.isEternal) { "Can't attach eternal lifetime" }
 
-        if (child.tryAdd(ClearLifetimeMarker(this))) {
-            if (!this.tryAdd(child))
-                child.terminate()
-        }
+        if (child.isNotAlive)
+            return
+
+        if (!this.tryAdd(child))
+            child.terminate()
     }
 
 
-    override fun<T:Any> bracket(opening: () -> T, terminationAction: () -> Unit) : T? {
+    override fun <T : Any> bracket(opening: () -> T, terminationAction: () -> Unit): T? {
         return executeIfAlive {
             val res = opening()
 
-            if(!tryAdd(terminationAction)) {
+            if (!tryAdd(terminationAction)) {
                 //terminated with `terminate(true)`
                 terminationAction()
             }
@@ -324,22 +359,20 @@ class LifetimeDefinition : Lifetime() {
         }
     }
 
-    private fun clearObsoleteAttachedLifetimes() {
-        {
-            for (i in resources.lastIndex downTo 0) {
-                if ((resources[i] as? LifetimeDefinition)?.let { it.status >= Terminating  } == true)
-                    resources.removeAt(i)
-                else
-                    break
+    override fun <T : Any> bracket2(opening: () -> T, terminationAction: (T) -> Unit): T? {
+        return executeIfAlive {
+            val res = opening()
+
+            if (!tryAdd({ terminationAction(res) })) {
+                //terminated with `terminate(true)`
+                terminationAction(res)
             }
-        } underMutexIf { state ->
-            //no need to clear if lifetime will be cleared soon
-            statusSlice[state] == Alive
+            res
         }
     }
-}
 
-private class ClearLifetimeMarker (val parentToClear: LifetimeDefinition)
+    override fun toString() = "Lifetime `${id ?: anonymousLifetimeId}` [${status}, executing=${executingSlice[state]}, resources=$resCount]"
+}
 
 fun Lifetime.waitTermination() = spinUntil { status == Terminated }
 
@@ -349,21 +382,6 @@ fun Lifetime.assertAlive() { assert(status == Alive) { "Not alive: $status" } }
 val Lifetime.isAlive : Boolean get() = status == Alive
 val Lifetime.isNotAlive : Boolean get() = status != Alive
 val Lifetime.isEternal : Boolean get() = this === Lifetime.Eternal
-
-
-private fun Lifetime.badStatusForAddActions() {
-    error ("Lifetime in '$status', can't add termination actions")
-}
-
-fun Lifetime.onTermination(action: () -> Unit) {
-    if (!onTerminationIfAlive(action))
-        badStatusForAddActions()
-}
-
-fun Lifetime.onTermination(closeable: Closeable) {
-    if (!onTerminationIfAlive(closeable))
-        badStatusForAddActions()
-}
 
 
 val EternalLifetime get() = Lifetime.Eternal

@@ -3,7 +3,6 @@ package com.jetbrains.rd.util.reactive
 import com.jetbrains.rd.util.lifetime.Lifetime
 import com.jetbrains.rd.util.lifetime.SequentialLifetimes
 import com.jetbrains.rd.util.lifetime.isAlive
-import com.jetbrains.rd.util.lifetime.onTermination
 
 
 /**

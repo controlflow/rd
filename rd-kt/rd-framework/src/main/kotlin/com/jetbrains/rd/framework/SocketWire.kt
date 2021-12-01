@@ -4,7 +4,6 @@ import com.jetbrains.rd.framework.base.WireBase
 import com.jetbrains.rd.util.*
 import com.jetbrains.rd.util.lifetime.Lifetime
 import com.jetbrains.rd.util.lifetime.isAlive
-import com.jetbrains.rd.util.lifetime.onTermination
 import com.jetbrains.rd.util.lifetime.plusAssign
 import com.jetbrains.rd.util.reactive.*
 import com.jetbrains.rd.util.threading.ByteBufferAsyncProcessor

@@ -2,7 +2,6 @@ package com.jetbrains.rd.util.test.cases
 
 import com.jetbrains.rd.util.lifetime.Lifetime
 import com.jetbrains.rd.util.lifetime.LifetimeDefinition
-import com.jetbrains.rd.util.lifetime.onTermination
 import com.jetbrains.rd.util.reactive.Property
 import com.jetbrains.rd.util.test.framework.RdTestBase
 import kotlin.test.Test

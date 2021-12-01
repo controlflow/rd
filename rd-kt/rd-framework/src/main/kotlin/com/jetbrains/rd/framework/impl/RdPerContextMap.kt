@@ -3,7 +3,6 @@ package com.jetbrains.rd.framework.impl
 import com.jetbrains.rd.framework.*
 import com.jetbrains.rd.framework.base.*
 import com.jetbrains.rd.util.lifetime.Lifetime
-import com.jetbrains.rd.util.lifetime.onTermination
 import com.jetbrains.rd.util.reactive.IViewableMap
 import com.jetbrains.rd.util.reactive.ViewableMap
 

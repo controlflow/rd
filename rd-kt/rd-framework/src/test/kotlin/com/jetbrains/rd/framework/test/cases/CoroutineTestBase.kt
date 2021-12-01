@@ -8,7 +8,6 @@ import com.jetbrains.rd.util.Statics
 import com.jetbrains.rd.util.getLogger
 import com.jetbrains.rd.util.lifetime.Lifetime
 import com.jetbrains.rd.util.lifetime.LifetimeDefinition
-import com.jetbrains.rd.util.lifetime.onTermination
 import com.jetbrains.rd.util.log.ErrorAccumulatorLoggerFactory
 import com.jetbrains.rd.util.threading.CompoundThrowable
 import com.jetbrains.rd.util.threading.TestSingleThreadScheduler

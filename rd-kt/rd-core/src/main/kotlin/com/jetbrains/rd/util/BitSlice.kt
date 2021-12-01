@@ -14,6 +14,14 @@ open class BitSlice(val lowBit: Int, val bitCount: Int) {
     abstract class TypedBitSlice<T>(lowBit: Int, bitCount: Int) : BitSlice(lowBit, bitCount) {
         abstract operator fun get(host: Int) : T
         abstract fun updated(host: Int, value: T) : Int
+
+        fun atomicUpdate(host: AtomicInteger, value: T) {
+            while (true) {
+                val s = host.get()
+                if (host.compareAndSet(s, updated(s, value)))
+                    return
+            }
+        }
     }
 
     private class IntBitSlice(lowBit: Int, bitCount: Int) : TypedBitSlice<Int>(lowBit, bitCount) {

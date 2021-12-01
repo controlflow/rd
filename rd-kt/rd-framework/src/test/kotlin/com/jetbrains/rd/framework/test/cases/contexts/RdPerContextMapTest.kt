@@ -11,7 +11,6 @@ import com.jetbrains.rd.framework.impl.RdPerContextMap
 import com.jetbrains.rd.framework.test.util.DynamicEntity
 import com.jetbrains.rd.framework.test.util.RdFrameworkTestBase
 import com.jetbrains.rd.util.assert
-import com.jetbrains.rd.util.lifetime.onTermination
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeAll

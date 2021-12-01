@@ -1,7 +1,6 @@
 package com.jetbrains.rd.util
 
 import com.jetbrains.rd.util.lifetime.Lifetime
-import com.jetbrains.rd.util.lifetime.onTermination
 import com.jetbrains.rd.util.reactive.viewableTail
 import kotlin.reflect.KClass
 
