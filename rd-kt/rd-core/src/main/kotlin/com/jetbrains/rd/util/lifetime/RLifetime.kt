@@ -207,6 +207,9 @@ class LifetimeDefinition : Lifetime() {
             }
 
             resources!![resCount++] = action
+            if (resCount > 100_000) {
+                log.error { "100k+ alive objects were added for a lifetime; this will cause performance degradation" }
+            }
             true
         } ?: false
     }
