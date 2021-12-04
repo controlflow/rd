@@ -293,7 +293,7 @@ class LifetimeDefinition : Lifetime() {
         require(localResources != null) { "$this: `resources` can't be null on destructuring stage" }
 
         for (i in resCount - 1 downTo 0) {
-            val resource = localResources[i] ?: break
+            val resource = localResources[i]
             try {
                 when (resource) {
                     is () -> Any? -> resource()
