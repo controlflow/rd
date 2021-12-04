@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
 using JetBrains.Annotations;
+#if !NET35
+using JetBrains.Diagnostics.StringInterpolation;
+#endif
 
 namespace JetBrains.Diagnostics
 {
@@ -78,7 +81,15 @@ namespace JetBrains.Diagnostics
     public static void Trace(this ILog @this, string message)
     {
       @this.Log(LoggingLevel.TRACE, message);      
+    }
+
+#if !NET35
+    public static void Trace(this ILog logger, [InterpolatedStringHandlerArgument("logger")] ref JetTraceLoggingInterpolatedStringHandler messageHandler)
+    {
+      if (messageHandler.IsEnabled)
+        logger.Log(LoggingLevel.TRACE, messageHandler.ToStringAndClear());      
     }    
+#endif
 
     [StringFormatMethod("message")]
     public static void Trace<T1>(this ILog @this, string message, T1 t1)
@@ -126,6 +137,14 @@ namespace JetBrains.Diagnostics
     {
       @this.Log(LoggingLevel.VERBOSE, message);
     }
+
+#if !NET35
+    public static void Verbose(this ILog logger, [InterpolatedStringHandlerArgument("logger")] ref JetVerboseLoggingInterpolatedStringHandler messageHandler)
+    {
+      if (messageHandler.IsEnabled)
+        logger.Log(LoggingLevel.VERBOSE, messageHandler.ToStringAndClear());
+    }
+#endif
 
     [StringFormatMethod("message")]
     public static void Verbose<T1>(this ILog @this, string message, T1 t1)
@@ -182,6 +201,14 @@ namespace JetBrains.Diagnostics
       @this.Log(LoggingLevel.INFO, message);
     }
 
+#if !NET35
+    public static void Info(this ILog logger, [InterpolatedStringHandlerArgument("logger")] ref JetInfoLoggingInterpolatedStringHandler messageHandler)
+    {
+      if (messageHandler.IsEnabled)
+        logger.Log(LoggingLevel.INFO, messageHandler.ToStringAndClear());
+    }
+#endif
+
     [StringFormatMethod("message")]
     public static void Info(this ILog @this, string message, params object[] args)
     {
@@ -203,6 +230,14 @@ namespace JetBrains.Diagnostics
       @this.Log(LoggingLevel.WARN, message);
     } 
     
+#if !NET35
+    public static void Warn(this ILog logger, [InterpolatedStringHandlerArgument("logger")] ref JetWarnLoggingInterpolatedStringHandler messageHandler)
+    {
+      if (messageHandler.IsEnabled)
+        logger.Log(LoggingLevel.WARN, messageHandler.ToStringAndClear());
+    }
+#endif
+    
     [StringFormatMethod("message")]
     public static void Warn(this ILog @this, string message, params object[] args)
     {
@@ -223,7 +258,15 @@ namespace JetBrains.Diagnostics
     public static void Error(this ILog @this, string message)
     {
       @this.Log(LoggingLevel.ERROR, message);
-    } 
+    }
+
+#if !NET35
+    public static void Error(this ILog logger, [InterpolatedStringHandlerArgument("logger")] ref JetErrorLoggingInterpolatedStringHandler messageHandler)
+    {
+      if (messageHandler.IsEnabled)
+        logger.Log(LoggingLevel.ERROR, messageHandler.ToStringAndClear());
+    }
+#endif
     
     [StringFormatMethod("message")]
     public static void Error(this ILog @this, string message, params object?[] args)
